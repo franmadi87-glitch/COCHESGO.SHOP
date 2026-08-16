@@ -635,6 +635,7 @@
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     global: { headers: { apikey: SUPABASE_ANON_KEY } }
   });
+  window.__cochesGoClient = sb; // exposición temporal para depuración
 
   /* ---------- PLAN CONFIG ---------- */
   const PLAN = {
