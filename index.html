@@ -1200,14 +1200,29 @@
     renderThumbs();
   }
 
+  function withTimeout(promise, ms, label){
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout:'+label)), ms))
+    ]);
+  }
+
   async function uploadPhotos(){
     const urls = [];
     for(const blob of state.photoFiles){
       const path = `${state.user.id}/${Date.now()}_${Math.random().toString(36).slice(2,8)}.jpg`;
-      const { error } = await sb.storage.from('fotos-vehiculos').upload(path, blob, { contentType:'image/jpeg' });
-      if(error) continue;
-      const { data } = sb.storage.from('fotos-vehiculos').getPublicUrl(path);
-      if(data && data.publicUrl) urls.push(data.publicUrl);
+      try{
+        const { error } = await withTimeout(
+          sb.storage.from('fotos-vehiculos').upload(path, blob, { contentType:'image/jpeg' }),
+          15000, 'upload-foto'
+        );
+        if(error) continue;
+        const { data } = sb.storage.from('fotos-vehiculos').getPublicUrl(path);
+        if(data && data.publicUrl) urls.push(data.publicUrl);
+      }catch(e){
+        // Si una foto tarda demasiado o falla, seguimos con el resto en vez de bloquear todo el anuncio.
+        continue;
+      }
     }
     return urls;
   }
@@ -1255,7 +1270,10 @@
       };
 
       if(isEditing){
-        const { data, error } = await sb.from('listings').update(payload).eq('id', state.editingListingId).select().single();
+        const { data, error } = await withTimeout(
+          sb.from('listings').update(payload).eq('id', state.editingListingId).select().single(),
+          20000, 'update-listing'
+        );
         if(error) throw error;
         const idx = state.listings.findIndex(x=>x.id===state.editingListingId);
         if(idx>-1) state.listings[idx] = data;
@@ -1266,7 +1284,10 @@
         renderStats();
         toast('Anuncio actualizado correctamente.');
       }else{
-        const { data, error } = await sb.from('listings').insert({ owner_id: state.user.id, ...payload }).select().single();
+        const { data, error } = await withTimeout(
+          sb.from('listings').insert({ owner_id: state.user.id, ...payload }).select().single(),
+          20000, 'insert-listing'
+        );
         if(error) throw error;
         state.listings.unshift(data);
         computeHiddenListings();
@@ -1277,7 +1298,10 @@
         toast('Anuncio publicado. Ya es visible para todo el mundo.');
       }
     }catch(err){
-      errBox.textContent = 'No se pudo guardar el anuncio. Comprueba tu conexión e inténtalo de nuevo.';
+      const isTimeout = err && err.message && err.message.startsWith('timeout:');
+      errBox.textContent = isTimeout
+        ? 'La operación está tardando demasiado. Prueba con menos fotos o vuelve a intentarlo.'
+        : 'No se pudo guardar el anuncio. Comprueba tu conexión e inténtalo de nuevo.';
       errBox.classList.add('show');
     }finally{
       submitBtn.disabled = false;
