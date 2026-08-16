@@ -506,9 +506,9 @@
       </div>
       <a class="btn btn-primary" id="upgradePayBtn" href="#" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;">Ir a pagar con Stripe</a>
       <p style="color:var(--muted);font-size:12px;margin-top:14px;line-height:1.5;">
-        Tras completar el pago en la pestaña de Stripe, vuelve aquí y pulsa el botón de abajo para activar tu suscripción de 30 días. Cada mes tendrás que repetir este paso para renovarla, hasta que conectemos la renovación automática por webhook.
+        Tras completar el pago en la pestaña de Stripe, la suscripción se activa sola en unos segundos. Si vuelves aquí y todavía no lo detecta, pulsa el botón de abajo para comprobarlo de nuevo — se renovará automáticamente cada mes, sin que tengas que hacer nada.
       </p>
-      <button class="btn" id="confirmUnlockBtn" style="width:100%;margin-top:6px;">Ya he pagado, activar suscripción</button>
+      <button class="btn" id="confirmUnlockBtn" style="width:100%;margin-top:6px;">Ya he pagado, comprobar estado</button>
     </div>
   </div>
 </div>
@@ -1128,7 +1128,9 @@
     document.getElementById('upgradeCount').textContent = mineCount;
     document.getElementById('upgradeLimitLabel').textContent = PLAN.freeLimit;
     document.getElementById('upgradePrice').textContent = PLAN.priceLabel;
-    document.getElementById('upgradePayBtn').href = PLAN.paymentLinkUrl;
+    const payUrl = new URL(PLAN.paymentLinkUrl);
+    if(state.user) payUrl.searchParams.set('client_reference_id', state.user.id);
+    document.getElementById('upgradePayBtn').href = payUrl.toString();
     document.getElementById('upgradeModalTitle').textContent = blocked ? 'Cuenta bloqueada por impago' : 'Límite de anuncios gratis';
     document.getElementById('upgradeBlockedBanner').style.display = blocked ? 'block' : 'none';
     document.getElementById('upgradeOverlay').classList.add('open');
@@ -1136,25 +1138,31 @@
   function closeUpgradeModal(){ document.getElementById('upgradeOverlay').classList.remove('open'); }
 
   async function confirmUnlock(){
-    if(!requireAuth('activar la suscripción')) return;
+    if(!requireAuth('comprobar tu suscripción')) return;
     const uid = state.user.id;
-    const wasActive = isSubscriptionActive();
-    const base = wasActive ? state.ownerSubUntil[uid] : Date.now();
-    const newUntil = new Date(base + PLAN.subscriptionDays*24*60*60*1000).toISOString();
+    const btn = document.getElementById('confirmUnlockBtn');
+    btn.disabled = true;
+    btn.textContent = 'Comprobando...';
     try{
-      await withTimeout(restFetch('subscriptions', {
-        method: 'POST',
-        headers: { 'Prefer': 'resolution=merge-duplicates' },
-        body: { user_id: uid, unlocked_until: newUntil, updated_at: new Date().toISOString() }
-      }), 10000, 'upsert-sub');
-      state.ownerSubUntil[uid] = new Date(newUntil).getTime();
+      const rows = await withTimeout(restFetch('subscriptions?select=*&user_id=eq.' + uid), 10000, 'check-sub');
+      const row = rows && rows[0];
+      state.ownerSubUntil[uid] = row ? new Date(row.unlocked_until).getTime() : 0;
       computeHiddenListings();
-      closeUpgradeModal();
-      toast(wasActive ? 'Suscripción renovada. ¡Gracias!' : '¡Suscripción activada! Ya puedes seguir publicando.');
       applyFiltersAndRender();
       renderStats();
-      openPublish();
-    }catch(e){ toast('No se pudo activar la suscripción. Inténtalo de nuevo.'); }
+      if(isSubscriptionActive()){
+        closeUpgradeModal();
+        toast('¡Pago confirmado! Ya puedes seguir publicando.');
+        openPublish();
+      }else{
+        toast('Todavía no vemos el pago confirmado. Puede tardar unos segundos tras pagar — vuelve a intentarlo en breve.');
+      }
+    }catch(e){
+      toast('No se pudo comprobar el estado. Inténtalo de nuevo en unos segundos.');
+    }finally{
+      btn.disabled = false;
+      btn.textContent = 'Ya he pagado, comprobar estado';
+    }
   }
 
   function openPublishModalOnly(){ document.getElementById('publishOverlay').classList.add('open'); }
