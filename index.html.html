@@ -10,6 +10,11 @@
 <meta property="og:type" content="website">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='18' fill='%2312141a'/%3E%3Ctext x='50' y='68' font-family='Arial,sans-serif' font-weight='700' font-size='58' fill='%23e6b800' text-anchor='middle'%3EG%3C/text%3E%3C/svg%3E">
 <meta name="theme-color" content="#12141a">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="COCHES.GO">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -370,7 +375,7 @@
   <div class="wrap hero-grid">
     <div>
       <div class="bib">Salida libre · sin comisiones</div>
-      <h1>Tu coche, <span>luz verde</span> para vender.</h1>
+      <h1>Compra o vende tu coche<br><span>rápido y seguro</span>.</h1>
       <p>Publica cualquier vehículo en segundos y llega a compradores que buscan exactamente lo tuyo. Sin intermediarios, sin letra pequeña.</p>
     </div>
     <div class="stat-strip">
@@ -510,7 +515,7 @@
 <div class="overlay" id="publishOverlay">
   <div class="modal">
     <div class="modal-head">
-      <h2>Publicar vehículo</h2>
+      <h2 id="publishModalTitle">Publicar vehículo</h2>
       <button class="close-x" id="closePublish">&times;</button>
     </div>
     <div class="modal-body">
@@ -587,7 +592,7 @@
         <div class="err" id="formErr"></div>
         <div class="form-actions">
           <button type="button" class="btn" id="cancelPublish">Cancelar</button>
-          <button type="submit" class="btn btn-primary">Publicar anuncio</button>
+          <button type="submit" class="btn btn-primary" id="publishSubmitBtn">Publicar anuncio</button>
         </div>
       </form>
     </div>
@@ -648,7 +653,9 @@
     ownerNames: {},
     hiddenListingIds: new Set(),
     photoBuffer: [],
-    photoFiles: []
+    photoFiles: [],
+    editingListingId: null,
+    editExistingPhotos: []
   };
 
   function toast(msg){
@@ -980,6 +987,7 @@
         <div class="desc-block">${escapeHtml(l.description || 'Sin descripción adicional.')}</div>
         <div class="contact-row">
           ${l.contact ? `<a class="btn" href="${contactHref}">Llamar / email directo</a>` : ''}
+          ${isOwner ? `<button class="btn" id="editListingBtn">✎ Editar anuncio</button>` : ''}
           ${isOwner ? `<button class="btn btn-ghost-danger" id="deleteListingBtn">Eliminar anuncio</button>` : ''}
         </div>
         <h3 style="font-size:15px;margin-top:26px;margin-bottom:10px;">Mensajes${isOwner ? ' de compradores interesados' : ' con el vendedor'}</h3>
@@ -993,6 +1001,7 @@
     document.getElementById('detailFavBtn').addEventListener('click', ()=>toggleFavorite(id));
     if(isOwner){
       document.getElementById('deleteListingBtn').addEventListener('click', ()=>deleteListing(l.id));
+      document.getElementById('editListingBtn').addEventListener('click', ()=>openEditListing(l));
     }
     document.getElementById('msgSendBtn').addEventListener('click', ()=>sendMessage(l));
     document.getElementById('msgInput').addEventListener('keydown', (e)=>{ if(e.key==='Enter') sendMessage(l); });
@@ -1048,6 +1057,10 @@
   /* ---------- publicar ---------- */
   function openPublish(){
     if(!requireAuth('publicar un vehículo')) return;
+    state.editingListingId = null;
+    state.editExistingPhotos = [];
+    document.getElementById('publishModalTitle').textContent = 'Publicar vehículo';
+    document.getElementById('publishSubmitBtn').textContent = 'Publicar anuncio';
     const mineCount = state.listings.filter(l=>l.owner_id===state.user.id).length;
     if(!isSubscriptionActive() && mineCount >= PLAN.freeLimit){
       openUpgradeModal(mineCount, isOwnerBlocked(state.user.id));
@@ -1085,11 +1098,43 @@
   }
 
   function openPublishModalOnly(){ document.getElementById('publishOverlay').classList.add('open'); }
+
+  function openEditListing(l){
+    state.editingListingId = l.id;
+    state.editExistingPhotos = (l.photos || []).slice();
+    state.photoFiles = [];
+    state.photoBuffer = [];
+
+    document.getElementById('publishModalTitle').textContent = 'Editar anuncio';
+    document.getElementById('publishSubmitBtn').textContent = 'Guardar cambios';
+
+    document.getElementById('fTitle').value = l.title || '';
+    document.getElementById('fCategoryIn').value = l.category || 'Turismos';
+    document.getElementById('fBrandIn').value = l.brand || '';
+    document.getElementById('fModel').value = l.model || '';
+    document.getElementById('fYear').value = l.year || '';
+    document.getElementById('fPriceIn').value = l.price || '';
+    document.getElementById('fKm').value = l.km || '';
+    document.getElementById('fFuelIn').value = l.fuel || '';
+    document.getElementById('fLoc').value = l.location || '';
+    document.getElementById('fSellerIn').value = l.seller_type || 'Particular';
+    document.getElementById('fContact').value = l.contact || '';
+    document.getElementById('fDesc').value = l.description || '';
+
+    closeDetail();
+    renderThumbs();
+    document.getElementById('publishOverlay').classList.add('open');
+  }
+
   function closePublish(){
     document.getElementById('publishOverlay').classList.remove('open');
     document.getElementById('publishForm').reset();
     state.photoBuffer = [];
     state.photoFiles = [];
+    state.editingListingId = null;
+    state.editExistingPhotos = [];
+    document.getElementById('publishModalTitle').textContent = 'Publicar vehículo';
+    document.getElementById('publishSubmitBtn').textContent = 'Publicar anuncio';
     document.getElementById('photoThumbs').innerHTML = '';
     document.getElementById('formErr').classList.remove('show');
   }
@@ -1118,9 +1163,18 @@
 
   function renderThumbs(){
     const box = document.getElementById('photoThumbs');
-    box.innerHTML = state.photoBuffer.map((src,i)=>`
+    const existingHtml = state.editExistingPhotos.map((src,i)=>`
+      <div class="photo-thumb"><img src="${src}"><button type="button" class="rm" data-existing="${i}">&times;</button></div>`).join('');
+    const newHtml = state.photoBuffer.map((src,i)=>`
       <div class="photo-thumb"><img src="${src}"><button type="button" class="rm" data-i="${i}">&times;</button></div>`).join('');
-    box.querySelectorAll('.rm').forEach(b=>{
+    box.innerHTML = existingHtml + newHtml;
+    box.querySelectorAll('[data-existing]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        state.editExistingPhotos.splice(Number(b.dataset.existing),1);
+        renderThumbs();
+      });
+    });
+    box.querySelectorAll('[data-i]').forEach(b=>{
       b.addEventListener('click', ()=>{
         const i = Number(b.dataset.i);
         state.photoBuffer.splice(i,1);
@@ -1131,7 +1185,8 @@
   }
 
   async function handlePhotoFiles(files){
-    const room = 6 - state.photoBuffer.length;
+    const totalNow = state.editExistingPhotos.length + state.photoBuffer.length;
+    const room = 6 - totalNow;
     const toProcess = Array.from(files).slice(0, Math.max(room,0));
     for(const f of toProcess){
       try{
@@ -1180,35 +1235,51 @@
       return;
     }
 
+    const isEditing = !!state.editingListingId;
     const submitBtn = e.target.querySelector('button[type="submit"]');
     submitBtn.disabled = true;
-    submitBtn.textContent = 'Publicando...';
+    submitBtn.textContent = isEditing ? 'Guardando...' : 'Publicando...';
 
     try{
-      const photoUrls = await uploadPhotos();
-      const { data, error } = await sb.from('listings').insert({
-        owner_id: state.user.id, title, category, brand, model,
+      const newPhotoUrls = await uploadPhotos();
+      const finalPhotos = isEditing ? [...state.editExistingPhotos, ...newPhotoUrls] : newPhotoUrls;
+      const payload = {
+        title, category, brand, model,
         year: year ? Number(year) : null,
         price: price ? Number(price) : 0,
         km: km ? Number(km) : 0,
         fuel, location, seller_type: sellerType, contact, description,
-        photos: photoUrls
-      }).select().single();
-      if(error) throw error;
+        photos: finalPhotos
+      };
 
-      state.listings.unshift(data);
-      computeHiddenListings();
-      closePublish();
-      renderFilters();
-      applyFiltersAndRender();
-      renderStats();
-      toast('Anuncio publicado. Ya es visible para todo el mundo.');
+      if(isEditing){
+        const { data, error } = await sb.from('listings').update(payload).eq('id', state.editingListingId).select().single();
+        if(error) throw error;
+        const idx = state.listings.findIndex(x=>x.id===state.editingListingId);
+        if(idx>-1) state.listings[idx] = data;
+        computeHiddenListings();
+        closePublish();
+        renderFilters();
+        applyFiltersAndRender();
+        renderStats();
+        toast('Anuncio actualizado correctamente.');
+      }else{
+        const { data, error } = await sb.from('listings').insert({ owner_id: state.user.id, ...payload }).select().single();
+        if(error) throw error;
+        state.listings.unshift(data);
+        computeHiddenListings();
+        closePublish();
+        renderFilters();
+        applyFiltersAndRender();
+        renderStats();
+        toast('Anuncio publicado. Ya es visible para todo el mundo.');
+      }
     }catch(err){
-      errBox.textContent = 'No se pudo publicar el anuncio. Comprueba tu conexión e inténtalo de nuevo.';
+      errBox.textContent = 'No se pudo guardar el anuncio. Comprueba tu conexión e inténtalo de nuevo.';
       errBox.classList.add('show');
     }finally{
       submitBtn.disabled = false;
-      submitBtn.textContent = 'Publicar anuncio';
+      submitBtn.textContent = isEditing ? 'Guardar cambios' : 'Publicar anuncio';
     }
   }
 
@@ -1504,6 +1575,13 @@
     await loadListings();
   })();
 })();
+</script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(()=>{});
+    });
+  }
 </script>
 </body>
 </html>
