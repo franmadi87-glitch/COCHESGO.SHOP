@@ -633,7 +633,7 @@
   const SUPABASE_URL = 'https://kfcfntydfeqeusqcxdzr.supabase.co';
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtmY2ZudHlkZmVxZXVzcWN4ZHpyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY4MDU4MDUsImV4cCI6MjEwMjM4MTgwNX0.BYrt9-F-eljo3vBrCxBZ6CWKlFvD_8NyzktDa2pk22c';
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global: { headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY } }
+    global: { headers: { apikey: SUPABASE_ANON_KEY } }
   });
 
   /* ---------- PLAN CONFIG ---------- */
