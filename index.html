@@ -752,8 +752,10 @@
 
   async function ensureProfile(){
     if(!state.user){ state.profile = null; return; }
-    const { data, error } = await sb.from('profiles').select('*').eq('id', state.user.id).maybeSingle();
-    state.profile = data || null;
+    try{
+      const rows = await withTimeout(restFetch('profiles?select=*&id=eq.' + state.user.id), 10000, 'ensure-profile');
+      state.profile = (rows && rows[0]) || null;
+    }catch(e){ state.profile = null; }
   }
 
   sb.auth.onAuthStateChange(async (event, session)=>{
@@ -773,14 +775,21 @@
     }
     const uid = state.user.id;
 
-    const { data: favs } = await sb.from('favorites').select('listing_id').eq('user_id', uid);
-    state.favorites = (favs||[]).map(f=>f.listing_id);
+    try{
+      const favs = await withTimeout(restFetch('favorites?select=listing_id&user_id=eq.' + uid), 10000, 'load-favs');
+      state.favorites = (favs||[]).map(f=>f.listing_id);
+    }catch(e){ state.favorites = []; }
 
-    const { data: searches } = await sb.from('saved_searches').select('*').eq('user_id', uid).order('created_at', {ascending:false});
-    state.savedSearches = searches || [];
+    try{
+      const searches = await withTimeout(restFetch('saved_searches?select=*&user_id=eq.' + uid + '&order=created_at.desc'), 10000, 'load-searches');
+      state.savedSearches = searches || [];
+    }catch(e){ state.savedSearches = []; }
 
-    const { data: sub } = await sb.from('subscriptions').select('*').eq('user_id', uid).maybeSingle();
-    state.ownerSubUntil[uid] = sub ? new Date(sub.unlocked_until).getTime() : 0;
+    try{
+      const sub = await withTimeout(restFetch('subscriptions?select=*&user_id=eq.' + uid), 10000, 'load-sub');
+      const row = sub && sub[0];
+      state.ownerSubUntil[uid] = row ? new Date(row.unlocked_until).getTime() : 0;
+    }catch(e){ state.ownerSubUntil[uid] = 0; }
 
     updateHeaderCounts();
   }
@@ -792,17 +801,23 @@
 
   async function loadOwnerSubStatuses(ownerIds){
     if(ownerIds.length===0) return;
-    const { data } = await sb.from('subscriptions').select('user_id, unlocked_until').in('user_id', ownerIds);
-    (data||[]).forEach(row=>{
-      state.ownerSubUntil[row.user_id] = new Date(row.unlocked_until).getTime();
-    });
+    try{
+      const idList = ownerIds.map(id=>'"'+id+'"').join(',');
+      const data = await withTimeout(restFetch('subscriptions?select=user_id,unlocked_until&user_id=in.(' + idList + ')'), 10000, 'load-owner-subs');
+      (data||[]).forEach(row=>{
+        state.ownerSubUntil[row.user_id] = new Date(row.unlocked_until).getTime();
+      });
+    }catch(e){}
     ownerIds.forEach(id=>{ if(!(id in state.ownerSubUntil)) state.ownerSubUntil[id] = 0; });
   }
 
   async function loadOwnerNames(ownerIds){
     if(ownerIds.length===0) return;
-    const { data } = await sb.from('profiles').select('id, display_name').in('id', ownerIds);
-    (data||[]).forEach(p=>{ state.ownerNames[p.id] = p.display_name; });
+    try{
+      const idList = ownerIds.map(id=>'"'+id+'"').join(',');
+      const data = await withTimeout(restFetch('profiles?select=id,display_name&id=in.(' + idList + ')'), 10000, 'load-owner-names');
+      (data||[]).forEach(p=>{ state.ownerNames[p.id] = p.display_name; });
+    }catch(e){}
   }
 
   function computeHiddenListings(){
@@ -837,12 +852,12 @@
     document.getElementById('grid').style.display = 'none';
     document.getElementById('emptyState').style.display = 'none';
 
-    const { data, error } = await sb.from('listings').select('*').order('created_at', {ascending:false});
-    if(error){
+    try{
+      const data = await withTimeout(restFetch('listings?select=*&order=created_at.desc'), 15000, 'load-listings');
+      state.listings = data || [];
+    }catch(error){
       toast('No se pudieron cargar los anuncios.');
       state.listings = [];
-    }else{
-      state.listings = data || [];
     }
 
     const ownerIds = Array.from(new Set(state.listings.map(l=>l.owner_id)));
@@ -975,10 +990,10 @@
     const isFav = state.favorites.includes(id);
     try{
       if(isFav){
-        await sb.from('favorites').delete().eq('user_id', uid).eq('listing_id', id);
+        await withTimeout(restFetch('favorites?user_id=eq.' + uid + '&listing_id=eq.' + id, { method: 'DELETE' }), 10000, 'del-fav');
         state.favorites = state.favorites.filter(x=>x!==id);
       }else{
-        await sb.from('favorites').insert({ user_id: uid, listing_id: id });
+        await withTimeout(restFetch('favorites', { method: 'POST', body: { user_id: uid, listing_id: id } }), 10000, 'add-fav');
         state.favorites.push(id);
       }
     }catch(e){ toast('No se pudo guardar el favorito.'); }
@@ -1049,10 +1064,13 @@
   function closeDetail(){ document.getElementById('detailOverlay').classList.remove('open'); }
 
   async function renderThread(l){
-    const { data: msgs, error } = await sb.from('messages').select('*').eq('listing_id', l.id).order('created_at', {ascending:true});
     const box = document.getElementById('threadMessages');
     if(!box) return;
-    if(error || !msgs || msgs.length===0){
+    let msgs = [];
+    try{
+      msgs = await withTimeout(restFetch('messages?select=*&listing_id=eq.' + l.id + '&order=created_at.asc'), 10000, 'load-thread');
+    }catch(e){ msgs = []; }
+    if(!msgs || msgs.length===0){
       box.innerHTML = `<div style="color:var(--muted);font-size:13px;">Todavía no hay mensajes en esta conversación.</div>`;
       return;
     }
@@ -1071,7 +1089,7 @@
     const text = input.value.trim();
     if(!text) return;
     try{
-      await sb.from('messages').insert({ listing_id: l.id, sender_id: state.user.id, text });
+      await withTimeout(restFetch('messages', { method: 'POST', body: { listing_id: l.id, sender_id: state.user.id, text } }), 10000, 'send-msg');
       input.value = '';
       await renderThread(l);
       toast('Mensaje enviado.');
@@ -1124,7 +1142,11 @@
     const base = wasActive ? state.ownerSubUntil[uid] : Date.now();
     const newUntil = new Date(base + PLAN.subscriptionDays*24*60*60*1000).toISOString();
     try{
-      await sb.from('subscriptions').upsert({ user_id: uid, unlocked_until: newUntil, updated_at: new Date().toISOString() });
+      await withTimeout(restFetch('subscriptions', {
+        method: 'POST',
+        headers: { 'Prefer': 'resolution=merge-duplicates' },
+        body: { user_id: uid, unlocked_until: newUntil, updated_at: new Date().toISOString() }
+      }), 10000, 'upsert-sub');
       state.ownerSubUntil[uid] = new Date(newUntil).getTime();
       computeHiddenListings();
       closeUpgradeModal();
@@ -1371,12 +1393,15 @@
     const uid = state.user.id;
     const myListingIds = state.listings.filter(l=>l.owner_id===uid).map(l=>l.id);
     let total = 0;
-    if(myListingIds.length){
-      const { count } = await sb.from('messages').select('id', {count:'exact', head:true}).in('listing_id', myListingIds);
-      total += count || 0;
-    }
-    const { count: sentCount } = await sb.from('messages').select('id', {count:'exact', head:true}).eq('sender_id', uid);
-    total += sentCount || 0;
+    try{
+      if(myListingIds.length){
+        const idList = myListingIds.map(id=>'"'+id+'"').join(',');
+        const rows = await withTimeout(restFetch('messages?select=id&listing_id=in.(' + idList + ')'), 10000, 'inbox-received');
+        total += (rows||[]).length;
+      }
+      const sentRows = await withTimeout(restFetch('messages?select=id&sender_id=eq.' + uid), 10000, 'inbox-sent');
+      total += (sentRows||[]).length;
+    }catch(e){}
     document.getElementById('inboxCount').textContent = total || '';
   }
 
@@ -1389,10 +1414,13 @@
     const exists = state.savedSearches.some(s=>JSON.stringify(s.params)===JSON.stringify(p));
     if(exists){ toast('Ya tienes esta búsqueda guardada.'); return; }
     try{
-      const { data, error } = await sb.from('saved_searches').insert({
-        user_id: state.user.id, label, params: p, last_checked_at: new Date().toISOString()
-      }).select().single();
-      if(error) throw error;
+      const rows = await withTimeout(restFetch('saved_searches', {
+        method: 'POST',
+        headers: { 'Prefer': 'return=representation' },
+        body: { user_id: state.user.id, label, params: p, last_checked_at: new Date().toISOString() }
+      }), 10000, 'save-search');
+      const data = rows && rows[0];
+      if(!data) throw new Error('sin datos');
       state.savedSearches.unshift(data);
       toast('Búsqueda guardada. Te avisaremos de anuncios nuevos.');
       updateHeaderCounts();
@@ -1400,7 +1428,7 @@
   }
   async function deleteSavedSearch(id){
     state.savedSearches = state.savedSearches.filter(s=>s.id!==id);
-    try{ await sb.from('saved_searches').delete().eq('id', id); }catch(e){}
+    try{ await withTimeout(restFetch('saved_searches?id=eq.' + id, { method: 'DELETE' }), 10000, 'del-search'); }catch(e){}
     updateHeaderCounts();
     renderAccountTabs();
   }
@@ -1408,7 +1436,7 @@
     const s = state.savedSearches.find(x=>x.id===id);
     if(!s) return;
     s.last_checked_at = new Date().toISOString();
-    try{ await sb.from('saved_searches').update({last_checked_at: s.last_checked_at}).eq('id', id); }catch(e){}
+    try{ await withTimeout(restFetch('saved_searches?id=eq.' + id, { method: 'PATCH', body: { last_checked_at: s.last_checked_at } }), 10000, 'mark-search'); }catch(e){}
     updateHeaderCounts();
   }
 
@@ -1455,7 +1483,11 @@
         content.innerHTML = planLine + `<div class="empty">Todavía no has publicado ningún vehículo.</div>`;
       }else{
         const rows = await Promise.all(mine.map(async l=>{
-          const { count } = await sb.from('messages').select('id', {count:'exact', head:true}).eq('listing_id', l.id);
+          let count = 0;
+          try{
+            const msgRows = await withTimeout(restFetch('messages?select=id&listing_id=eq.' + l.id), 10000, 'msg-count');
+            count = (msgRows||[]).length;
+          }catch(e){}
           const isHidden = state.hiddenListingIds.has(l.id);
           const img = (l.photos && l.photos[0]) ? `<img src="${l.photos[0]}">` : `<div class="no-photo-sm"></div>`;
           return `<div class="mini-card" data-open="${l.id}" style="${isHidden?'opacity:0.55;':''}">
@@ -1493,7 +1525,8 @@
       }
     }else if(accountTab==='mensajes'){
       const myListingIds = state.listings.filter(l=>l.owner_id===uid).map(l=>l.id);
-      const { data: sentMsgs } = await sb.from('messages').select('listing_id').eq('sender_id', uid);
+      let sentMsgs = [];
+      try{ sentMsgs = await withTimeout(restFetch('messages?select=listing_id&sender_id=eq.' + uid), 10000, 'sent-msgs'); }catch(e){ sentMsgs = []; }
       const threadIds = Array.from(new Set([...myListingIds, ...(sentMsgs||[]).map(m=>m.listing_id)]));
       if(threadIds.length===0){
         content.innerHTML = `<div class="empty">No tienes conversaciones todavía.</div>`;
@@ -1502,7 +1535,8 @@
         for(const id of threadIds){
           const l = state.listings.find(x=>x.id===id);
           if(!l) continue;
-          const { data: msgs } = await sb.from('messages').select('*').eq('listing_id', id).order('created_at', {ascending:false}).limit(1);
+          let msgs = [];
+          try{ msgs = await withTimeout(restFetch('messages?select=*&listing_id=eq.' + id + '&order=created_at.desc&limit=1'), 10000, 'last-msg'); }catch(e){ msgs = []; }
           if(!msgs || msgs.length===0) continue;
           const last = msgs[0];
           await loadOwnerNames([last.sender_id].filter(x=>!(x in state.ownerNames)));
