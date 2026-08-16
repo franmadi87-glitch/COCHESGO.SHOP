@@ -637,6 +637,41 @@
   });
   window.__cochesGoClient = sb; // exposición temporal para depuración
 
+  /* ---------- acceso directo a la API (evita el bloqueo interno del cliente) ---------- */
+  function getStoredAccessToken(){
+    try{
+      const key = 'sb-kfcfntydfeqeusqcxdzr-auth-token';
+      const raw = localStorage.getItem(key);
+      if(!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && parsed.access_token ? parsed.access_token : null;
+    }catch(e){ return null; }
+  }
+
+  async function restFetch(path, options={}){
+    const token = getStoredAccessToken() || SUPABASE_ANON_KEY;
+    const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, {
+      method: options.method || 'GET',
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined
+    });
+    if(!res.ok){
+      let errBody;
+      try{ errBody = await res.json(); }catch(e){ errBody = { message: res.statusText }; }
+      const err = new Error(errBody.message || 'Error de red');
+      err.details = errBody;
+      err.status = res.status;
+      throw err;
+    }
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
+  }
+
   /* ---------- PLAN CONFIG ---------- */
   const PLAN = {
     freeLimit: 1,
@@ -1046,7 +1081,7 @@
   async function deleteListing(id){
     if(!confirm('¿Eliminar este anuncio? No se puede deshacer.')) return;
     try{
-      await sb.from('listings').delete().eq('id', id);
+      await withTimeout(restFetch('listings?id=eq.' + id, { method: 'DELETE' }), 15000, 'delete-listing');
       state.listings = state.listings.filter(x=>x.id!==id);
       computeHiddenListings();
       closeDetail();
@@ -1271,11 +1306,16 @@
       };
 
       if(isEditing){
-        const { data, error } = await withTimeout(
-          sb.from('listings').update(payload).eq('id', state.editingListingId).select().single(),
-          20000, 'update-listing'
+        const rows = await withTimeout(
+          restFetch('listings?id=eq.' + state.editingListingId, {
+            method: 'PATCH',
+            headers: { 'Prefer': 'return=representation' },
+            body: payload
+          }),
+          15000, 'update-listing'
         );
-        if(error) throw error;
+        const data = rows && rows[0];
+        if(!data) throw new Error('No se pudo actualizar (0 filas afectadas).');
         const idx = state.listings.findIndex(x=>x.id===state.editingListingId);
         if(idx>-1) state.listings[idx] = data;
         computeHiddenListings();
@@ -1285,11 +1325,16 @@
         renderStats();
         toast('Anuncio actualizado correctamente.');
       }else{
-        const { data, error } = await withTimeout(
-          sb.from('listings').insert({ owner_id: state.user.id, ...payload }).select().single(),
-          20000, 'insert-listing'
+        const rows = await withTimeout(
+          restFetch('listings', {
+            method: 'POST',
+            headers: { 'Prefer': 'return=representation' },
+            body: { owner_id: state.user.id, ...payload }
+          }),
+          15000, 'insert-listing'
         );
-        if(error) throw error;
+        const data = rows && rows[0];
+        if(!data) throw new Error('No se pudo publicar (sin datos de respuesta).');
         state.listings.unshift(data);
         computeHiddenListings();
         closePublish();
