@@ -1691,14 +1691,14 @@
 })();
 </script>
 <script>
-  // El service worker se ha desactivado temporalmente: cualquier versión
-  // que ya estuviera instalada en el navegador (de pruebas anteriores) se
-  // elimina automáticamente aquí, para que no siga interceptando peticiones
-  // ni causando cuelgues. Se retomará en una fase posterior, por separado.
+  // El service worker vuelve a estar activo: ahora toda la app usa
+  // peticiones directas (restFetch) en vez de la librería de Supabase,
+  // así que el service worker (que solo actúa sobre archivos propios,
+  // nunca sobre Supabase) ya no puede interferir con nada.
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then(regs => {
-      regs.forEach(reg => reg.unregister());
-    }).catch(()=>{});
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(()=>{});
+    });
   }
 </script>
 </body>
