@@ -1532,6 +1532,19 @@
     document.getElementById('reportOverlay').classList.remove('open');
     reportCtx = null;
   }
+  // Avisa al titular por email. Es "disparar y olvidar": si falla, la denuncia ya está guardada igualmente.
+  function notifyReport(reportId){
+    try{
+      const token = getStoredAccessToken();
+      if(!token) return;
+      fetch('/api/notify-report', {
+        method:'POST',
+        headers:{ 'Authorization':'Bearer ' + token, 'Content-Type':'application/json' },
+        body: JSON.stringify({ report_id: reportId })
+      }).catch(()=>{});
+    }catch(e){}
+  }
+
   async function submitReport(){
     if(!reportCtx || !state.user) return;
     const btn = document.getElementById('sendReportBtn');
@@ -1549,7 +1562,9 @@
       details: document.getElementById('reportDetails').value.trim() || null
     };
     try{
-      await withTimeout(restFetch('reports', { method:'POST', body }), 12000, 'send-report');
+      const saved = await withTimeout(restFetch('reports', { method:'POST', headers:{ 'Prefer':'return=representation' }, body }), 12000, 'send-report');
+      const reportId = saved && saved[0] && saved[0].id;
+      if(reportId) notifyReport(reportId);
       closeReportModal();
       toast('Denuncia enviada. Gracias por avisarnos.');
     }catch(e){
