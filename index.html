@@ -316,6 +316,14 @@
     font-weight:600;border-bottom:2px solid transparent;text-transform:uppercase;letter-spacing:0.04em;
   }
   .tab-btn.active{color:var(--yellow);border-bottom-color:var(--yellow);}
+  .tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .tab-btn{white-space:nowrap;flex-shrink:0;}
+  .mod-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+  .msg-actions a{color:var(--muted);text-decoration:underline;font-size:11px;cursor:pointer;text-transform:none;letter-spacing:0;}
+  .msg-actions a:hover{color:var(--yellow);}
+  .settings-h{font-size:15px;margin-bottom:10px;}
+  .danger-box{border:1px solid var(--red-dark);background:rgba(216,67,46,0.06);border-radius:var(--radius);padding:16px;}
+  footer a{color:inherit;text-decoration:underline;}
   .thread-box{border:1px solid var(--hairline);border-radius:8px;padding:12px 14px;margin-bottom:10px;background:var(--card);}
   .msg-item{padding:8px 0;border-bottom:1px dashed var(--hairline);font-size:13.5px;}
   .msg-item:last-child{border-bottom:none;}
@@ -449,7 +457,7 @@
   </div>
 </section>
 
-<footer>COCHES.GO — plataforma de anuncios entre particulares. Verifica siempre el vehículo antes de pagar.</footer>
+<footer>COCHES.GO — plataforma de anuncios entre particulares. Verifica siempre el vehículo antes de pagar.<br><a href="/privacy.html">Política de privacidad</a> · <a href="/eliminar-cuenta.html">Eliminar mi cuenta</a></footer>
 
 <!-- AUTH MODAL -->
 <div class="overlay" id="authOverlay">
@@ -614,6 +622,7 @@
         <button class="tab-btn" data-tab="favoritos">Favoritos</button>
         <button class="tab-btn" data-tab="guardadas">Búsquedas guardadas</button>
         <button class="tab-btn" data-tab="mensajes">Mensajes</button>
+        <button class="tab-btn" data-tab="ajustes">Ajustes</button>
       </div>
       <div id="accountContent"><div class="loading-row"><div class="spinner"></div> Cargando...</div></div>
     </div>
@@ -623,6 +632,35 @@
 <!-- DETAIL MODAL -->
 <div class="overlay" id="detailOverlay">
   <div class="modal" id="detailModal" style="max-width:680px;">
+  </div>
+</div>
+
+<!-- REPORT MODAL -->
+<div class="overlay" id="reportOverlay">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-head">
+      <h2>Enviar denuncia</h2>
+      <button class="close-x" id="closeReport">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p id="reportSubject" style="color:var(--paper-dim);font-size:14px;line-height:1.5;margin-bottom:16px;word-break:break-word;"></p>
+      <label for="reportReason">Motivo</label>
+      <select class="field" id="reportReason" style="width:100%;box-sizing:border-box;">
+        <option>Posible estafa o fraude</option>
+        <option>Anuncio falso, duplicado o engañoso</option>
+        <option>Contenido ofensivo o inapropiado</option>
+        <option>Spam o publicidad no deseada</option>
+        <option>Acoso o comportamiento abusivo</option>
+        <option>Otro motivo</option>
+      </select>
+      <label for="reportDetails" style="margin-top:14px;">Detalles (opcional)</label>
+      <textarea class="field" id="reportDetails" maxlength="1000" placeholder="Cuéntanos qué ocurre..." style="width:100%;box-sizing:border-box;"></textarea>
+      <div class="err" id="reportErr"></div>
+      <div class="form-actions">
+        <button class="btn" id="cancelReport" type="button">Cancelar</button>
+        <button class="btn btn-primary" id="sendReportBtn" type="button">Enviar denuncia</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -690,6 +728,7 @@
     ownerSubUntil: {},
     ownerNames: {},
     hiddenListingIds: new Set(),
+    blockedUsers: new Set(),
     photoBuffer: [],
     photoFiles: [],
     editingListingId: null,
@@ -770,6 +809,7 @@
   async function loadUserData(){
     if(!state.user){
       state.favorites = []; state.myThreads = []; state.savedSearches = [];
+      state.blockedUsers = new Set();
       updateHeaderCounts();
       return;
     }
@@ -790,6 +830,11 @@
       const row = sub && sub[0];
       state.ownerSubUntil[uid] = row ? new Date(row.unlocked_until).getTime() : 0;
     }catch(e){ state.ownerSubUntil[uid] = 0; }
+
+    try{
+      const bl = await withTimeout(restFetch('blocked_users?select=blocked_id&blocker_id=eq.' + uid), 10000, 'load-blocked');
+      state.blockedUsers = new Set((bl||[]).map(b=>b.blocked_id));
+    }catch(e){ state.blockedUsers = new Set(); }
 
     updateHeaderCounts();
   }
@@ -836,7 +881,7 @@
   }
 
   function getPublicListings(){
-    return state.listings.filter(l=>!state.hiddenListingIds.has(l.id));
+    return state.listings.filter(l=>!state.hiddenListingIds.has(l.id) && !state.blockedUsers.has(l.owner_id));
   }
 
   function isOwnerBlocked(ownerId){
@@ -1043,6 +1088,7 @@
           ${isOwner ? `<button class="btn" id="editListingBtn">✎ Editar anuncio</button>` : ''}
           ${isOwner ? `<button class="btn btn-ghost-danger" id="deleteListingBtn">Eliminar anuncio</button>` : ''}
         </div>
+        ${!isOwner ? `<div class="mod-row"><button type="button" class="btn btn-sm btn-ghost-danger" id="reportListingBtn">⚑ Denunciar anuncio</button><button type="button" class="btn btn-sm" id="blockSellerBtn">Bloquear vendedor</button></div>` : ''}
         <h3 style="font-size:15px;margin-top:26px;margin-bottom:10px;">Mensajes${isOwner ? ' de compradores interesados' : ' con el vendedor'}</h3>
         <div id="threadMessages"><div class="loading-row" style="padding:14px 0;"><div class="spinner"></div> Cargando mensajes...</div></div>
         <div style="display:flex;gap:8px;margin-top:10px;">
@@ -1058,6 +1104,10 @@
     }
     document.getElementById('msgSendBtn').addEventListener('click', ()=>sendMessage(l));
     document.getElementById('msgInput').addEventListener('keydown', (e)=>{ if(e.key==='Enter') sendMessage(l); });
+    if(!isOwner){
+      document.getElementById('reportListingBtn').addEventListener('click', ()=>openReportModal({ subject:'Anuncio: ' + l.title, listingId:l.id, listingTitle:l.title, userId:l.owner_id }));
+      document.getElementById('blockSellerBtn').addEventListener('click', ()=>blockUser(l.owner_id, state.ownerNames[l.owner_id]));
+    }
     document.getElementById('detailOverlay').classList.add('open');
     await renderThread(l);
   }
@@ -1070,6 +1120,7 @@
     try{
       msgs = await withTimeout(restFetch('messages?select=*&listing_id=eq.' + l.id + '&order=created_at.asc'), 10000, 'load-thread');
     }catch(e){ msgs = []; }
+    msgs = (msgs || []).filter(m=>!state.blockedUsers.has(m.sender_id));
     if(!msgs || msgs.length===0){
       box.innerHTML = `<div style="color:var(--muted);font-size:13px;">Todavía no hay mensajes en esta conversación.</div>`;
       return;
@@ -1078,9 +1129,22 @@
     await loadOwnerNames(senderIds.filter(id=>!(id in state.ownerNames)));
     box.innerHTML = `<div class="thread-box">${msgs.map(m=>`
       <div class="msg-item">
-        <div class="msg-meta ${state.user && m.sender_id===state.user.id ?'mine':''}">${escapeHtml(state.ownerNames[m.sender_id]||'Usuario')} · ${timeAgo(m.created_at)}</div>
+        <div class="msg-meta ${state.user && m.sender_id===state.user.id ?'mine':''}">${escapeHtml(state.ownerNames[m.sender_id]||'Usuario')} · ${timeAgo(m.created_at)}${(state.user && m.sender_id!==state.user.id) ? ` <span class="msg-actions">· <a data-report-msg="${m.id}">Denunciar</a> · <a data-block-user="${m.sender_id}">Bloquear</a></span>` : ''}</div>
         <div>${escapeHtml(m.text)}</div>
       </div>`).join('')}</div>`;
+    box.querySelectorAll('[data-report-msg]').forEach(a=>{
+      a.addEventListener('click', ()=>{
+        const m = msgs.find(x=>x.id===a.dataset.reportMsg);
+        if(!m) return;
+        openReportModal({
+          subject: 'Mensaje de ' + (state.ownerNames[m.sender_id]||'Usuario') + ': "' + m.text.slice(0,120) + (m.text.length>120?'…':'') + '"',
+          listingId: l.id, listingTitle: l.title, userId: m.sender_id, messageId: m.id, messageText: m.text
+        });
+      });
+    });
+    box.querySelectorAll('[data-block-user]').forEach(a=>{
+      a.addEventListener('click', ()=> blockUser(a.dataset.blockUser, state.ownerNames[a.dataset.blockUser]));
+    });
   }
 
   async function sendMessage(l){
@@ -1448,6 +1512,115 @@
     updateHeaderCounts();
   }
 
+  /* ---------- denunciar / bloquear ---------- */
+  let reportCtx = null;
+  function openReportModal(ctx){
+    if(!requireAuth('enviar una denuncia')) return;
+    reportCtx = ctx;
+    document.getElementById('reportSubject').textContent = ctx.subject || '';
+    document.getElementById('reportReason').selectedIndex = 0;
+    document.getElementById('reportDetails').value = '';
+    const err = document.getElementById('reportErr');
+    err.classList.remove('show'); err.textContent = '';
+    document.getElementById('reportOverlay').classList.add('open');
+  }
+  function closeReportModal(){
+    document.getElementById('reportOverlay').classList.remove('open');
+    reportCtx = null;
+  }
+  async function submitReport(){
+    if(!reportCtx || !state.user) return;
+    const btn = document.getElementById('sendReportBtn');
+    const err = document.getElementById('reportErr');
+    err.classList.remove('show');
+    btn.disabled = true; btn.textContent = 'Enviando...';
+    const body = {
+      reporter_id: state.user.id,
+      listing_id: reportCtx.listingId || null,
+      reported_user_id: reportCtx.userId || null,
+      message_id: reportCtx.messageId || null,
+      listing_title: reportCtx.listingTitle || null,
+      message_text: reportCtx.messageText ? reportCtx.messageText.slice(0,500) : null,
+      reason: document.getElementById('reportReason').value,
+      details: document.getElementById('reportDetails').value.trim() || null
+    };
+    try{
+      await withTimeout(restFetch('reports', { method:'POST', body }), 12000, 'send-report');
+      closeReportModal();
+      toast('Denuncia enviada. Gracias por avisarnos.');
+    }catch(e){
+      err.textContent = 'No se pudo enviar la denuncia. Inténtalo de nuevo.';
+      err.classList.add('show');
+    }finally{
+      btn.disabled = false; btn.textContent = 'Enviar denuncia';
+    }
+  }
+
+  async function blockUser(userId, name){
+    if(!requireAuth('bloquear a un usuario')) return;
+    if(!userId || userId === state.user.id) return;
+    if(!confirm('¿Bloquear a ' + (name || 'este usuario') + '?\n\nNo verás sus anuncios ni sus mensajes y no podrá escribirte. Puedes desbloquearlo en Mi cuenta > Ajustes.')) return;
+    try{
+      await withTimeout(restFetch('blocked_users', {
+        method:'POST',
+        headers:{ 'Prefer':'resolution=ignore-duplicates' },
+        body:{ blocker_id: state.user.id, blocked_id: userId }
+      }), 10000, 'block-user');
+      state.blockedUsers.add(userId);
+      closeDetail();
+      renderFilters();
+      applyFiltersAndRender();
+      renderStats();
+      toast('Usuario bloqueado.');
+    }catch(e){ toast('No se pudo bloquear al usuario. Inténtalo de nuevo.'); }
+  }
+
+  async function unblockUser(userId){
+    if(!state.user) return;
+    try{
+      await withTimeout(restFetch('blocked_users?blocker_id=eq.' + state.user.id + '&blocked_id=eq.' + userId, { method:'DELETE' }), 10000, 'unblock-user');
+      state.blockedUsers.delete(userId);
+      renderFilters();
+      applyFiltersAndRender();
+      renderStats();
+      toast('Usuario desbloqueado.');
+      renderAccountTabs();
+    }catch(e){ toast('No se pudo desbloquear. Inténtalo de nuevo.'); }
+  }
+
+  /* ---------- eliminar mi cuenta ---------- */
+  async function deleteMyAccount(){
+    const btn = document.getElementById('deleteAccountBtn');
+    const err = document.getElementById('deleteErr');
+    err.classList.remove('show');
+    btn.disabled = true; btn.textContent = 'Eliminando...';
+    try{
+      // refresca la sesión si hiciera falta, antes de leer el token
+      try{ await withTimeout(sb.auth.getSession(), 4000, 'refresh-session'); }catch(e){}
+      const token = getStoredAccessToken();
+      if(!token) throw new Error('No se encontró tu sesión. Cierra sesión, vuelve a entrar e inténtalo de nuevo.');
+      const res = await withTimeout(fetch('/api/delete-account', {
+        method:'POST',
+        headers:{ 'Authorization':'Bearer ' + token }
+      }), 30000, 'delete-account');
+      let data = {};
+      try{ data = await res.json(); }catch(e){}
+      if(!res.ok) throw new Error(data.error || 'No se pudo eliminar la cuenta.');
+      try{ await withTimeout(sb.auth.signOut(), 3000, 'signout'); }catch(e){}
+      try{ localStorage.removeItem('sb-kfcfntydfeqeusqcxdzr-auth-token'); }catch(e){}
+      closeAccountPanel();
+      toast('Tu cuenta se ha eliminado.');
+      setTimeout(()=>location.reload(), 1500);
+    }catch(e){
+      const timedOut = e && e.message && String(e.message).startsWith('timeout:');
+      err.textContent = timedOut
+        ? 'Está tardando demasiado. Recarga la página para comprobar si tu cuenta ya se ha eliminado.'
+        : ((e && e.message) || 'No se pudo eliminar la cuenta.');
+      err.classList.add('show');
+      btn.disabled = false; btn.textContent = 'Eliminar mi cuenta definitivamente';
+    }
+  }
+
   /* ---------- panel de cuenta ---------- */
   let accountTab = 'anuncios';
   function openAccountPanel(tab){
@@ -1542,11 +1715,12 @@
         const parts = [];
         for(const id of threadIds){
           const l = state.listings.find(x=>x.id===id);
-          if(!l) continue;
+          if(!l || state.blockedUsers.has(l.owner_id)) continue;
           let msgs = [];
           try{ msgs = await withTimeout(restFetch('messages?select=*&listing_id=eq.' + id + '&order=created_at.desc&limit=1'), 10000, 'last-msg'); }catch(e){ msgs = []; }
           if(!msgs || msgs.length===0) continue;
           const last = msgs[0];
+          if(state.blockedUsers.has(last.sender_id)) continue;
           await loadOwnerNames([last.sender_id].filter(x=>!(x in state.ownerNames)));
           parts.push(`<div class="mini-card" data-open="${id}">
             ${(l.photos&&l.photos[0])?`<img src="${l.photos[0]}">`:'<div class="no-photo-sm"></div>'}
@@ -1558,6 +1732,33 @@
         }
         content.innerHTML = parts.length ? parts.join('') : `<div class="empty">No tienes conversaciones todavía.</div>`;
       }
+    }else if(accountTab==='ajustes'){
+      const blockedIds = Array.from(state.blockedUsers);
+      await loadOwnerNames(blockedIds.filter(id=>!(id in state.ownerNames)));
+      content.innerHTML = `
+        <h3 class="settings-h">Usuarios bloqueados</h3>
+        ${blockedIds.length ? blockedIds.map(id=>`
+          <div class="mini-card" style="cursor:default;">
+            <div class="mini-info"><div class="mini-title">${escapeHtml(state.ownerNames[id]||'Usuario')}</div><div class="mini-sub">No ves sus anuncios ni mensajes</div></div>
+            <button type="button" class="btn btn-sm" data-unblock="${id}">Desbloquear</button>
+          </div>`).join('') : `<div style="color:var(--muted);font-size:13.5px;margin-bottom:6px;">No has bloqueado a nadie.</div>`}
+        <h3 class="settings-h" style="margin-top:30px;">Eliminar mi cuenta</h3>
+        <div class="danger-box">
+          <p style="color:var(--paper-dim);font-size:13.5px;line-height:1.6;margin-bottom:14px;">
+            Se eliminarán de forma <b>permanente</b> tu cuenta, tus anuncios y sus fotos, tus mensajes, favoritos y búsquedas guardadas. Si tienes una suscripción de pago activa, se cancelará. Esta acción no se puede deshacer.
+          </p>
+          <label for="deleteConfirmInput">Escribe ELIMINAR para confirmar</label>
+          <input class="field" id="deleteConfirmInput" autocomplete="off" autocapitalize="characters" style="width:100%;box-sizing:border-box;margin-bottom:12px;">
+          <div class="err" id="deleteErr"></div>
+          <button type="button" class="btn btn-ghost-danger" id="deleteAccountBtn" disabled style="width:100%;margin-top:8px;">Eliminar mi cuenta definitivamente</button>
+        </div>`;
+      const delInput = document.getElementById('deleteConfirmInput');
+      const delBtn = document.getElementById('deleteAccountBtn');
+      delInput.addEventListener('input', ()=>{ delBtn.disabled = delInput.value.trim().toUpperCase() !== 'ELIMINAR'; });
+      delBtn.addEventListener('click', deleteMyAccount);
+      content.querySelectorAll('[data-unblock]').forEach(b=>{
+        b.addEventListener('click', ()=>unblockUser(b.dataset.unblock));
+      });
     }
 
     content.querySelectorAll('[data-open]').forEach(el=>{
@@ -1666,6 +1867,9 @@
   document.getElementById('closeUpgrade').addEventListener('click', closeUpgradeModal);
   document.getElementById('upgradeOverlay').addEventListener('click', (e)=>{ if(e.target.id==='upgradeOverlay') closeUpgradeModal(); });
   document.getElementById('confirmUnlockBtn').addEventListener('click', confirmUnlock);
+  document.getElementById('closeReport').addEventListener('click', closeReportModal);
+  document.getElementById('cancelReport').addEventListener('click', closeReportModal);
+  document.getElementById('sendReportBtn').addEventListener('click', submitReport);
   document.getElementById('closePublish').addEventListener('click', closePublish);
   document.getElementById('cancelPublish').addEventListener('click', closePublish);
   document.getElementById('publishOverlay').addEventListener('click', (e)=>{ if(e.target.id==='publishOverlay') closePublish(); });
