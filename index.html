@@ -457,7 +457,7 @@
   </div>
 </section>
 
-<footer>COCHES.GO — plataforma de anuncios entre particulares. Verifica siempre el vehículo antes de pagar.<br><a href="/privacy.html">Política de privacidad</a> · <a href="/eliminar-cuenta.html">Eliminar mi cuenta</a></footer>
+<footer>COCHES.GO — plataforma de anuncios entre particulares. Verifica siempre el vehículo antes de pagar.<br><a href="/terminos.html">Términos de uso</a> · <a href="/privacy.html">Política de privacidad</a> · <a href="/aviso-legal.html">Aviso legal</a> · <a href="/eliminar-cuenta.html">Eliminar mi cuenta</a><br>Contacto y denuncias: <a href="mailto:contacto@cochesgo.shop">contacto@cochesgo.shop</a></footer>
 
 <!-- AUTH MODAL -->
 <div class="overlay" id="authOverlay">
@@ -485,7 +485,11 @@
         <label>Email</label>
         <input class="field" id="signupEmail" type="email" placeholder="tu@email.com" style="width:100%;margin-bottom:12px;">
         <label>Contraseña</label>
-        <input class="field" id="signupPassword" type="password" placeholder="Mínimo 6 caracteres" style="width:100%;margin-bottom:16px;">
+        <input class="field" id="signupPassword" type="password" placeholder="Mínimo 6 caracteres" style="width:100%;margin-bottom:14px;">
+        <label style="display:flex;gap:9px;align-items:flex-start;text-transform:none;letter-spacing:0;font-size:12.5px;line-height:1.5;color:var(--paper-dim);margin-bottom:14px;cursor:pointer;">
+          <input type="checkbox" id="signupTerms" style="margin-top:3px;flex-shrink:0;">
+          <span>Tengo 18 años o más y acepto los <a href="/terminos.html" target="_blank" rel="noopener" style="color:var(--yellow);">Términos de uso</a> y la <a href="/privacy.html" target="_blank" rel="noopener" style="color:var(--yellow);">Política de privacidad</a>.</span>
+        </label>
         <div class="err" id="signupErr"></div>
         <button class="btn btn-primary" id="signupSubmitBtn" style="width:100%;">Crear cuenta</button>
       </div>
@@ -1834,9 +1838,14 @@
       errBox.classList.add('show');
       return;
     }
+    if(!document.getElementById('signupTerms').checked){
+      errBox.textContent = 'Para crear la cuenta debes confirmar que tienes 18 años o más y aceptar los Términos de uso y la Política de privacidad.';
+      errBox.classList.add('show');
+      return;
+    }
     const btn = document.getElementById('signupSubmitBtn');
     btn.disabled = true; btn.textContent = 'Creando cuenta...';
-    const { data: signUpData, error } = await sb.auth.signUp({ email, password, options: { data: { display_name: name } } });
+    const { data: signUpData, error } = await sb.auth.signUp({ email, password, options: { data: { display_name: name, terms_accepted_at: new Date().toISOString() } } });
     btn.disabled = false; btn.textContent = 'Crear cuenta';
     if(error){
       errBox.textContent = error.message.includes('already registered') ? 'Ese email ya tiene una cuenta. Inicia sesión.' : 'No se pudo crear la cuenta. Inténtalo de nuevo.';
