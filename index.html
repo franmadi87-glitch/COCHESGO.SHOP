@@ -1806,7 +1806,15 @@
     const { error } = await sb.auth.signInWithPassword({ email, password });
     btn.disabled = false; btn.textContent = 'Iniciar sesión';
     if(error){
-      errBox.textContent = 'Email o contraseña incorrectos.';
+      const msg = String(error.message || '').toLowerCase();
+      const code = String(error.code || '').toLowerCase();
+      if(code==='email_not_confirmed' || msg.includes('email not confirmed')){
+        errBox.textContent = 'Todavía no has confirmado tu email. Abre el correo que te enviamos (mira también en Spam) y pulsa el enlace de confirmación.';
+      }else if(code==='invalid_credentials' || msg.includes('invalid login credentials')){
+        errBox.textContent = 'Email o contraseña incorrectos. Recuerda que la contraseña distingue mayúsculas de minúsculas.';
+      }else{
+        errBox.textContent = 'No se pudo iniciar sesión. Inténtalo de nuevo en unos segundos.';
+      }
       errBox.classList.add('show');
       return;
     }
@@ -1820,6 +1828,7 @@
     const password = document.getElementById('signupPassword').value;
     const errBox = document.getElementById('signupErr');
     errBox.classList.remove('show');
+    errBox.style.color = '';
     if(!email || !password || password.length<6){
       errBox.textContent = 'Escribe un email válido y una contraseña de al menos 6 caracteres.';
       errBox.classList.add('show');
@@ -1827,10 +1836,17 @@
     }
     const btn = document.getElementById('signupSubmitBtn');
     btn.disabled = true; btn.textContent = 'Creando cuenta...';
-    const { error } = await sb.auth.signUp({ email, password, options: { data: { display_name: name } } });
+    const { data: signUpData, error } = await sb.auth.signUp({ email, password, options: { data: { display_name: name } } });
     btn.disabled = false; btn.textContent = 'Crear cuenta';
     if(error){
       errBox.textContent = error.message.includes('already registered') ? 'Ese email ya tiene una cuenta. Inicia sesión.' : 'No se pudo crear la cuenta. Inténtalo de nuevo.';
+      errBox.classList.add('show');
+      return;
+    }
+    if(!signUpData || !signUpData.session){
+      // La cuenta exige confirmar el email: todavía NO hay sesión iniciada.
+      errBox.style.color = 'var(--green)';
+      errBox.textContent = 'Cuenta creada. Te hemos enviado un email de confirmación: ábrelo (mira también en Spam), pulsa el enlace y después inicia sesión.';
       errBox.classList.add('show');
       return;
     }
